@@ -138,11 +138,21 @@ def handle_new_order(payload):
     Callback for new order events.
     """
     print("New order received!")
+    print(f"DEBUG: Payload type: {type(payload)}")
+    print(f"DEBUG: Payload raw: {payload}")
+    
     try:
-        # payload might be an object or dict depending on library version
-        new_order = payload.get('new') if isinstance(payload, dict) else payload.new
-    except:
-        new_order = payload 
+        # Try to treat as object first (PyDantic model in newer Supabase libs)
+        if hasattr(payload, 'new'):
+            new_order = payload.new
+        # Try dictionary access
+        elif isinstance(payload, dict):
+            new_order = payload.get('new')
+        else:
+            new_order = None
+    except Exception as e:
+        print(f"DEBUG: Extraction error: {e}")
+        new_order = None 
 
     if new_order:
         receipt_text = format_receipt(new_order)
