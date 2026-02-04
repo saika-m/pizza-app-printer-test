@@ -142,14 +142,28 @@ def handle_new_order(payload):
     print(f"DEBUG: Payload raw: {payload}")
     
     try:
-        # Try to treat as object first (PyDantic model in newer Supabase libs)
+        # Debugging shown payload: {'data': {'record': {...}}} or similar
+        # Check standard Realtime structures
         if hasattr(payload, 'new'):
             new_order = payload.new
-        # Try dictionary access
         elif isinstance(payload, dict):
-            new_order = payload.get('new')
+            # 1. Standard dict payload
+            if 'new' in payload:
+                new_order = payload['new']
+            # 2. Nested data.record (as seen in user logs)
+            elif 'data' in payload and isinstance(payload['data'], dict) and 'record' in payload['data']:
+                new_order = payload['data']['record']
+            # 3. Direct record key
+            elif 'record' in payload:
+                new_order = payload['record']
+            else:
+                new_order = None
         else:
-            new_order = None
+            # Fallback for object with data attr
+            if hasattr(payload, 'data') and isinstance(payload.data, dict) and 'record' in payload.data:
+                 new_order = payload.data['record']
+            else:
+                new_order = None
     except Exception as e:
         print(f"DEBUG: Extraction error: {e}")
         new_order = None 
