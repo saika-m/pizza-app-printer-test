@@ -106,8 +106,13 @@ def format_receipt(order):
 
 def print_raw(text):
     """
-    Sends raw text to the printer.
+    Sends raw text to the printer, followed by a cut command.
     """
+    # ESC/POS Commands
+    # LF = b'\x0a'
+    # GS V m = Cut Paper. m=66 is "Feed paper to cutting position and cut"
+    CUT_COMMAND = b'\x1d\x56\x42\x00' 
+    
     if PRINTER_AVAILABLE:
         try:
             hPrinter = win32print.OpenPrinter(PRINTER_NAME)
@@ -115,9 +120,16 @@ def print_raw(text):
                 hJob = win32print.StartDocPrinter(hPrinter, 1, ("Kitchen Receipt", None, "RAW"))
                 try:
                     win32print.StartPagePrinter(hPrinter)
-                    # Many thermal printers support standard code pages. 
-                    # If utf-8 causes garbage, try 'cp437' (PC standard) or 'latin1'.
-                    win32print.WritePrinter(hPrinter, text.encode('cp437', errors='ignore')) 
+                    
+                    # Encode text
+                    encoded_text = text.encode('cp437', errors='ignore')
+                    
+                    # Send text + extra whitespace + cut command
+                    # We add a few newlines (b'\n') to ensure text is past the cutter if the command handles it poorly
+                    # But GS V 66 usually feeds automatically. We'll send both to be safe.
+                    final_payload = encoded_text + b'\n\n\n' + CUT_COMMAND
+                    
+                    win32print.WritePrinter(hPrinter, final_payload)
                     win32print.EndPagePrinter(hPrinter)
                 finally:
                     win32print.EndDocPrinter(hPrinter)
@@ -131,6 +143,7 @@ def print_raw(text):
     else:
         print("--- MOCK PRINTER OUTPUT START ---")
         print(text)
+        print("--- CUT COMMAND WOULD BE SENT HERE ---")
         print("--- MOCK PRINTER OUTPUT END ---")
 
 def handle_new_order(payload):
