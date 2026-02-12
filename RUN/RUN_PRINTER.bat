@@ -4,6 +4,7 @@ cd /d "%~dp0"
 cd ..
 
 echo Starting Kitchen Printer...
+echo Logging to: kitchen_printer.log
 echo.
 
 REM Check if venv exists

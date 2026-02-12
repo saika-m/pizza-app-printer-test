@@ -3,8 +3,21 @@ import time
 import json
 import datetime
 import asyncio
+import logging
+import socket
 from dotenv import load_dotenv
 from supabase import create_async_client, AClient
+
+# Configure logging
+LOG_FILE = "kitchen_printer.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
 
 # Attempt to import win32print, use mock if unavailable (for testing on Mac/Linux)
 try:
@@ -12,7 +25,7 @@ try:
     PRINTER_AVAILABLE = True
 except ImportError:
     PRINTER_AVAILABLE = False
-    print("Warning: win32print not found. Running in MOCK PRINTER mode.")
+    logging.warning("win32print not found. Running in MOCK PRINTER mode.")
 
 # Load environment variables
 load_dotenv()
@@ -25,14 +38,46 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     # Try parent .env for dev/testing
     parent_env = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
     if os.path.exists(parent_env):
-        print(f"Loading credentials from {parent_env}")
+        logging.info(f"Loading credentials from {parent_env}")
         load_dotenv(parent_env)
         SUPABASE_URL = os.getenv("VITE_SUPABASE_URL")
         SUPABASE_KEY = os.getenv("VITE_SUPABASE_ANON_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    print("Error: SUPABASE_URL and SUPABASE_KEY must be set in .env file")
+    logging.error("SUPABASE_URL and SUPABASE_KEY must be set in .env file")
+    print("\nCRITICAL ERROR: Missing Supabase credentials. Please check your .env file.\n")
+    # Don't exit immediately, let the user see the error
+    time.sleep(10)
     exit(1)
+
+def check_internet_connection(host="8.8.8.8", port=53, timeout=3):
+    """
+    Check if there is an internet connection by trying to connect to Google's public DNS.
+    """
+    try:
+        socket.setdefaulttimeout(timeout)
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
+        return True
+    except socket.error as ex:
+        logging.error(f"No internet connection detected: {ex}")
+        return False
+
+def check_printer_available(printer_name):
+    """
+    Checks if the printer is available (Windows only).
+    Returns True if available, False otherwise.
+    """
+    if not PRINTER_AVAILABLE:
+        return True # Mock always available
+
+    try:
+        # Open the printer to check if it exists and is accessible
+        hPrinter = win32print.OpenPrinter(printer_name)
+        win32print.ClosePrinter(hPrinter)
+        return True
+    except Exception as e:
+        logging.error(f"Printer '{printer_name}' not found or not accessible: {e}")
+        return False
 
 def format_receipt(order):
     """
@@ -138,24 +183,23 @@ def print_raw(text):
                     win32print.EndDocPrinter(hPrinter)
             finally:
                 win32print.ClosePrinter(hPrinter)
-            print(f"Successfully printed receipt.")
+            logging.info(f"Successfully printed receipt.")
         except Exception as e:
-            print(f"Failed to print to {PRINTER_NAME}: {e}")
-            print("Dumping receipt to console:")
+            logging.error(f"Failed to print to {PRINTER_NAME}: {e}")
+            logging.info("Dumping receipt to console:")
             print(text)
     else:
-        print("--- MOCK PRINTER OUTPUT START ---")
+        logging.info("--- MOCK PRINTER OUTPUT START ---")
         print(text)
-        print("--- CUT COMMAND WOULD BE SENT HERE ---")
-        print("--- MOCK PRINTER OUTPUT END ---")
+        logging.info("--- CUT COMMAND WOULD BE SENT HERE ---")
+        logging.info("--- MOCK PRINTER OUTPUT END ---")
 
 def handle_new_order(payload):
     """
     Callback for new order events.
     """
-    print("New order received!")
-    print(f"DEBUG: Payload type: {type(payload)}")
-    print(f"DEBUG: Payload raw: {payload}")
+    logging.info("New order received!")
+    # logging.debug(f"Payload raw: {payload}")
     
     try:
         # Debugging shown payload: {'data': {'record': {...}}} or similar
@@ -181,42 +225,85 @@ def handle_new_order(payload):
             else:
                 new_order = None
     except Exception as e:
-        print(f"DEBUG: Extraction error: {e}")
+        logging.error(f"Extraction error: {e}")
         new_order = None 
 
     if new_order:
-        receipt_text = format_receipt(new_order)
-        print_raw(receipt_text)
+        try:
+            receipt_text = format_receipt(new_order)
+            print_raw(receipt_text)
+        except Exception as e:
+            logging.error(f"Error formatting or printing receipt: {e}")
     else:
-        print("Error: Could not extract order data from payload")
+        logging.error("Could not extract order data from payload")
 
 async def main():
-    print(f"Starting Kitchen Printer Service (Async)...")
-    print(f"Target Printer: {PRINTER_NAME}")
-    print(f"Connecting to Supabase: {SUPABASE_URL}")
+    print(f"\n{'='*40}")
+    print(f"   PIZZA APP KITCHEN PRINTER SERVICE")
+    print(f"{'='*40}\n")
     
-    # Initialize Async Supabase client
-    supabase: AClient = await create_async_client(SUPABASE_URL, SUPABASE_KEY)
+    logging.info(f"Starting Service...")
     
-    # Subscribe to the orders table
-    channel = supabase.channel('schema-db-changes')
+    # 1. Check Internet
+    print("Checking Internet Connection...", end=" ", flush=True)
+    while not check_internet_connection():
+        print("FAILED!")
+        logging.error("No Internet connection. Retrying in 5 seconds...")
+        print("   >> ERROR: No Internet detected! Please check your WiFi.")
+        print("   >> Retrying in 5 seconds...", end=" ", flush=True)
+        await asyncio.sleep(5)
+        print("Retrying...", end=" ", flush=True)
+    print("OK!")
     
-    await channel.on_postgres_changes(
-        event='INSERT',
-        schema='public',
-        table='orders',
-        callback=handle_new_order
-    ).subscribe()
-
-    print("Subscribed to 'orders' INSERT events. Waiting for orders...")
-
-    # Keep the script running
+    # 2. Check Printer
+    print(f"Checking Printer ({PRINTER_NAME})...", end=" ", flush=True)
+    if check_printer_available(PRINTER_NAME):
+        print("OK!")
+    else:
+        print("FAILED!")
+        logging.error(f"Printer {PRINTER_NAME} not found.")
+        print(f"   >> ERROR: Printer '{PRINTER_NAME}' not found or offline!")
+        print("   >> Please check USB connection and power.")
+        print("   >> The script will continue, but printing will fail.")
+        
+    print(f"Connecting to Supabase...", end=" ", flush=True)
+    
     try:
-        while True:
-            await asyncio.sleep(1)
-    except KeyboardInterrupt:
-        print("Stopping service...")
-        # Optional: await supabase.disconnect() if available/needed
+        # Initialize Async Supabase client
+        supabase: AClient = await create_async_client(SUPABASE_URL, SUPABASE_KEY)
+        
+        # Subscribe to the orders table
+        channel = supabase.channel('schema-db-changes')
+        
+        await channel.on_postgres_changes(
+            event='INSERT',
+            schema='public',
+            table='orders',
+            callback=handle_new_order
+        ).subscribe()
 
+        print("OK!")
+        print(f"\n{'-'*40}")
+        print("   SERVICE RUNNING - WAITING FOR ORDERS")
+        print(f"{'-'*40}\n")
+        logging.info("Subscribed to 'orders' INSERT events. Ready.")
+
+        # Keep the script running
+        while True:
+            # Optional: Periodic connection check could go here
+            await asyncio.sleep(1)
+            
+    except Exception as e:
+        logging.critical(f"Fatal error in main loop: {e}")
+        print(f"\nCRITICAL ERROR: {e}\n")
+        
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("Stopping service (KeyboardInterrupt)...")
+        print("\nStopping service...")
+    except Exception as e:
+        logging.critical(f"Unhandled exception: {e}")
+        print(f"\nCRITICAL ERROR: {e}")
+        time.sleep(5)
