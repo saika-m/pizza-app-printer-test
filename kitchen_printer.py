@@ -62,6 +62,9 @@ def format_receipt(order):
     if dorm:
         receipt_lines.append(f"Location: {dorm}")
         
+    payment_method = order.get('payment_method', 'Unknown')
+    receipt_lines.append(f"Payment:  {payment_method}")
+        
     receipt_lines.append("--------------------------------")
     receipt_lines.append("ITEMS:")
     

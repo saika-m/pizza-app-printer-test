@@ -1,6 +1,7 @@
 @echo off
 REM Change to the directory of this script
 cd /d "%~dp0"
+cd ..
 
 echo Starting Kitchen Printer...
 echo.
