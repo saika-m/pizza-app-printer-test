@@ -1,0 +1,3 @@
+supabase
+pywin32
+python-dotenv

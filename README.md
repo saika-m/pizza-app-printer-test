@@ -1,0 +1,1 @@
+python 3.12 if you are on Windows PLEASE
