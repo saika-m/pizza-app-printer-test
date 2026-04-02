@@ -9,8 +9,31 @@ import requests
 from dotenv import load_dotenv
 from supabase import create_async_client, AClient
 
+import sys
+import traceback
+
+def global_exception_handler(exctype, value, tb):
+    print("="*50)
+    print("A CRITICAL ERROR OCCURRED AND THE PROGRAM CRASHED:")
+    print("="*50)
+    traceback.print_exception(exctype, value, tb)
+    print("="*50)
+    input("Press ENTER to close this window...")
+    sys.exit(1)
+
+sys.excepthook = global_exception_handler
+
+# Determine base directory correctly whether running in python or as PyInstaller executable
+if getattr(sys, 'frozen', False):
+    # PyInstaller bundle: sys.executable is the .exe itself
+    # Since exe is in RUN/ folder, the project root is one level up
+    BASE_DIR = os.path.dirname(os.path.dirname(sys.executable))
+else:
+    # Normal Python run
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Configure logging
-LOG_FILE = "kitchen_printer.log"
+LOG_FILE = os.path.join(BASE_DIR, "kitchen_printer.log")
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -50,28 +73,23 @@ except ImportError:
     PRINTER_AVAILABLE = False
     logging.warning("win32print not found. Running in MOCK PRINTER mode.")
 
-# Load environment variables
-load_dotenv()
+# Load environment variables (from project root)
+env_path = os.path.join(BASE_DIR, '.env')
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+else:
+    logging.warning(f"No .env file found at {env_path}")
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY") or os.getenv("VITE_SUPABASE_ANON_KEY")
 PRINTER_NAME = "MP-POS80"  # Adjust if your printer name is different
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    # Try parent .env for dev/testing
-    parent_env = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
-    if os.path.exists(parent_env):
-        logging.info(f"Loading credentials from {parent_env}")
-        load_dotenv(parent_env)
-        SUPABASE_URL = os.getenv("VITE_SUPABASE_URL")
-        SUPABASE_KEY = os.getenv("VITE_SUPABASE_ANON_KEY")
-
-if not SUPABASE_URL or not SUPABASE_KEY:
     logging.error("SUPABASE_URL and SUPABASE_KEY must be set in .env file")
-    print("\nCRITICAL ERROR: Missing Supabase credentials. Please check your .env file.\n")
-    # Don't exit immediately, let the user see the error
-    time.sleep(10)
-    exit(1)
+    print(f"\nCRITICAL ERROR: Missing Supabase credentials. Checked path: {env_path}")
+    print("Please check your .env file.")
+    input("\nPress ENTER to exit...")
+    sys.exit(1)
 
 def check_internet_connection(url="https://www.google.com", timeout=3):
     """

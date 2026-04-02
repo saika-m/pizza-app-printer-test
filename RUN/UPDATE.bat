@@ -69,8 +69,8 @@ echo ========================================================
 pyinstaller --onefile --name "KitchenPrinter" --hidden-import="zeroconf" --icon=NONE kitchen_printer.py
 
 if %ERRORLEVEL% EQU 0 (
-    REM Move binary to project root and clean up PyInstaller folders
-    move /y "dist\KitchenPrinter.exe" "KitchenPrinter.exe" >nul
+    REM Move binary to RUN folder and clean up PyInstaller folders
+    move /y "dist\KitchenPrinter.exe" "RUN\KitchenPrinter.exe" >nul
     rmdir /s /q build
     rmdir /s /q dist
     if exist "KitchenPrinter.spec" del "KitchenPrinter.spec"
@@ -79,7 +79,7 @@ if %ERRORLEVEL% EQU 0 (
     echo ========================================================
     echo [SUCCESS] Update and Build Complete!
     echo You can now just double-click 'KitchenPrinter.exe'
-    echo located in the main folder to run your printer.
+    echo located inside this RUN folder!
     echo ========================================================
 ) else (
     echo.
@@ -87,3 +87,4 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 pause
+
