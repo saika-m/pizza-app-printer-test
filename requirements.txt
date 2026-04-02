@@ -1,3 +1,4 @@
 supabase
 pywin32
 python-dotenv
+requests
