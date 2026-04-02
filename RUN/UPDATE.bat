@@ -15,6 +15,9 @@ echo ========================================================
 echo     Checking Environment...
 echo ========================================================
 
+REM 0. Ensure old print client isn't running so it doesn't block the file overwrite
+taskkill /f /im KitchenPrinter.exe >nul 2>&1
+
 REM 1. Check if Python is installed
 python --version >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
@@ -55,11 +58,11 @@ call venv\Scripts\activate.bat
 
 REM 4. Install requirements and PyInstaller
 echo [INFO] Installing dependencies and PyInstaller...
-python -m pip install --upgrade pip >nul 2>&1
+python -m pip install --upgrade pip
 if exist "requirements.txt" (
-    pip install -r requirements.txt >nul 2>&1
+    pip install -r requirements.txt
 )
-pip install pyinstaller >nul 2>&1
+pip install pyinstaller
 
 echo.
 echo ========================================================
