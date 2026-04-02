@@ -5,7 +5,7 @@ cd /d "%~dp0"
 cd ..
 
 echo ========================================================
-echo     Kitchen Printer Updater ^& Builder
+echo     Kitchen Printer Updater
 echo ========================================================
 echo Pulling latest updates from GitHub...
 git pull
@@ -14,9 +14,6 @@ echo.
 echo ========================================================
 echo     Checking Environment...
 echo ========================================================
-
-REM 0. Ensure old print client isn't running so it doesn't block the file overwrite
-taskkill /f /im KitchenPrinter.exe >nul 2>&1
 
 REM 1. Check if Python is installed
 python --version >nul 2>&1
@@ -56,38 +53,17 @@ if "%VENV_EXISTS%" == "0" (
 REM 3. Activate Virtual Environment
 call venv\Scripts\activate.bat
 
-REM 4. Install requirements and PyInstaller
-echo [INFO] Installing dependencies and PyInstaller...
+REM 4. Install requirements
+echo [INFO] Installing dependencies...
 python -m pip install --upgrade pip
 if exist "requirements.txt" (
     pip install -r requirements.txt
 )
-pip install pyinstaller
 
 echo.
 echo ========================================================
-echo     Building Standalone Binary...
+echo [SUCCESS] Update and Installation Complete!
+echo You can now run the printer by clicking Start_Printer.bat
 echo ========================================================
-
-pyinstaller --onefile --name "KitchenPrinter" --hidden-import="zeroconf" --hidden-import="requests" --collect-all supabase --icon=NONE kitchen_printer.py
-
-if %ERRORLEVEL% EQU 0 (
-    REM Move binary to RUN folder and clean up PyInstaller folders
-    move /y "dist\KitchenPrinter.exe" "RUN\KitchenPrinter.exe" >nul
-    rmdir /s /q build
-    rmdir /s /q dist
-    if exist "KitchenPrinter.spec" del "KitchenPrinter.spec"
-
-    echo.
-    echo ========================================================
-    echo [SUCCESS] Update and Build Complete!
-    echo You can now just double-click 'KitchenPrinter.exe'
-    echo located inside this RUN folder!
-    echo ========================================================
-) else (
-    echo.
-    echo [ERROR] Build failed during PyInstaller execution.
-)
-
 pause
 
