@@ -1,14 +1,3 @@
-import os
-import time
-import json
-import datetime
-import asyncio
-import logging
-import socket
-import requests
-from dotenv import load_dotenv
-from supabase import create_async_client, AClient
-
 import sys
 import traceback
 
@@ -22,6 +11,17 @@ def global_exception_handler(exctype, value, tb):
     sys.exit(1)
 
 sys.excepthook = global_exception_handler
+
+import os
+import time
+import json
+import datetime
+import asyncio
+import logging
+import socket
+import requests
+from dotenv import load_dotenv
+from supabase import create_async_client, AClient
 
 # Determine base directory correctly whether running in python or as PyInstaller executable
 if getattr(sys, 'frozen', False):
