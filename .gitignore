@@ -3,7 +3,6 @@
 
 # Environments
 venv/
-.env
 
 # PyInstaller / Build artifacts
 build/
