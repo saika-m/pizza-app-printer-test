@@ -69,7 +69,7 @@ echo ========================================================
 echo     Building Standalone Binary...
 echo ========================================================
 
-pyinstaller --onefile --name "KitchenPrinter" --hidden-import="zeroconf" --collect-all supabase --icon=NONE kitchen_printer.py
+pyinstaller --onefile --name "KitchenPrinter" --hidden-import="zeroconf" --hidden-import="requests" --collect-all supabase --icon=NONE kitchen_printer.py
 
 if %ERRORLEVEL% EQU 0 (
     REM Move binary to RUN folder and clean up PyInstaller folders
