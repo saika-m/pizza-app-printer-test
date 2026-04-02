@@ -8,6 +8,18 @@ echo ========================================================
 echo     Starting Kitchen Printer...
 echo ========================================================
 
+REM 0. Check Internet Connectivity
+echo [INFO] Testing internet connection...
+curl -I -s -m 3 "http://www.msftconnecttest.com/connecttest.txt" >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] No Internet Connection detected!
+    echo [ACTION] Please check your Wi-Fi or Ethernet cable before continuing.
+    pause
+    exit /b
+)
+echo [SUCCESS] Internet connection is active.
+
+
 REM 1. Check if virtual environment exists
 if not exist "venv\Scripts\activate.bat" (
     echo [ERROR] Virtual environment not found!
