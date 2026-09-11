@@ -433,14 +433,17 @@ async def main():
     try:
         # Initialize Async Supabase client
         supabase: AClient = await create_async_client(SUPABASE_URL, SUPABASE_KEY)
-        
-        # Subscribe to the orders table
-        channel = supabase.channel('schema-db-changes')
-        
-        await channel.on_postgres_changes(
+
+        # Subscribe to the 'orders-printer' Realtime Broadcast channel.
+        # This is intentionally NOT a postgres_changes/table subscription:
+        # the anon key no longer has SELECT on the `orders` table (that hole
+        # was closed server-side), so new-order notifications are pushed via
+        # a dedicated broadcast topic instead, authorized independently via
+        # a realtime.messages policy scoped to just this topic.
+        channel = supabase.channel('orders-printer')
+
+        await channel.on_broadcast(
             event='INSERT',
-            schema='public',
-            table='orders',
             callback=handle_new_order
         ).subscribe()
 
@@ -448,7 +451,7 @@ async def main():
         print(f"\n{'-'*40}")
         print("   SERVICE RUNNING - WAITING FOR ORDERS")
         print(f"{'-'*40}\n")
-        logging.info("Subscribed to 'orders' INSERT events. Ready.")
+        logging.info("Subscribed to 'orders-printer' broadcast channel. Ready.")
 
         # Keep the script running
         while True:
