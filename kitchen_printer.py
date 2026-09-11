@@ -23,6 +23,20 @@ import requests
 from dotenv import load_dotenv
 from supabase import create_async_client, AClient
 
+# Used to unlock the printer's login (see authenticate_printer below).
+try:
+    import win32crypt
+    DPAPI_AVAILABLE = True
+except ImportError:
+    DPAPI_AVAILABLE = False
+
+try:
+    import tkinter as tk
+    from tkinter import simpledialog
+    TKINTER_AVAILABLE = True
+except ImportError:
+    TKINTER_AVAILABLE = False
+
 # Determine base directory correctly whether running in python or as PyInstaller executable
 if getattr(sys, 'frozen', False):
     # PyInstaller bundle: sys.executable is the .exe itself
@@ -84,12 +98,124 @@ SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY") or os.getenv("VITE_SUPABASE_ANON_KEY")
 PRINTER_NAME = "MP-POS80"  # Adjust if your printer name is different
 
+# Must match the admin login used by the website's admin dashboard
+# (see ADMIN_EMAIL in src/components/AdminLogin.tsx in the pizza-app repo).
+# The password itself is never stored here or in git - it's typed once
+# into a popup on this machine and then cached (encrypted) locally.
+ADMIN_EMAIL = "admin@fatchancenewyorkslice.com"
+SESSION_CACHE_FILE = os.path.join(BASE_DIR, ".printer_session.dat")
+
 if not SUPABASE_URL or not SUPABASE_KEY:
     logging.error("SUPABASE_URL and SUPABASE_KEY must be set in .env file")
     print(f"\nCRITICAL ERROR: Missing Supabase credentials. Checked path: {env_path}")
     print("Please check your .env file.")
     input("\nPress ENTER to exit...")
     sys.exit(1)
+
+
+def _save_cached_session(session):
+    """
+    Caches the login (access + refresh token) so this machine doesn't need
+    to ask for the password again on every restart / auto-update. Encrypted
+    with Windows DPAPI, which ties it to this specific Windows user account
+    on this specific machine - copying the file elsewhere won't decrypt it.
+    """
+    if not DPAPI_AVAILABLE:
+        logging.warning("win32crypt not available - session will not be cached; password will be asked again next run.")
+        return
+    try:
+        payload = json.dumps({
+            "access_token": session.access_token,
+            "refresh_token": session.refresh_token,
+        }).encode("utf-8")
+        encrypted = win32crypt.CryptProtectData(payload, "pizza-printer-session", None, None, None, 0)
+        with open(SESSION_CACHE_FILE, "wb") as f:
+            f.write(encrypted)
+        logging.info("Cached printer session for future automatic restarts.")
+    except Exception as e:
+        logging.error(f"Failed to cache session: {e}")
+
+
+def _load_cached_session():
+    if not DPAPI_AVAILABLE or not os.path.exists(SESSION_CACHE_FILE):
+        return None
+    try:
+        with open(SESSION_CACHE_FILE, "rb") as f:
+            encrypted = f.read()
+        _, decrypted = win32crypt.CryptUnprotectData(encrypted, None, None, None, 0)
+        return json.loads(decrypted.decode("utf-8"))
+    except Exception as e:
+        logging.warning(f"Could not read cached session (will re-prompt): {e}")
+        return None
+
+
+def _prompt_for_password():
+    """
+    Shows a Windows popup asking for the admin panel password. Nothing
+    typed here is ever written to disk or git - it's used once to sign in,
+    then only the resulting session token is cached (see _save_cached_session).
+    """
+    if not TKINTER_AVAILABLE:
+        logging.critical("tkinter not available - cannot prompt for password. Install a standard Python (python.org) build.")
+        return None
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    password = simpledialog.askstring(
+        "Kitchen Printer - Unlock Required",
+        "Enter the admin panel password to enable order notifications:",
+        show="*",
+        parent=root,
+    )
+    root.destroy()
+    return password
+
+
+async def authenticate_printer(supabase: AClient):
+    """
+    Ensures `supabase` holds a logged-in (authenticated) session before we
+    subscribe to the 'orders-printer' broadcast channel - that channel only
+    allows logged-in sessions to listen (see the Supabase migration). Tries
+    the cached session first; only falls back to the popup if there is none
+    or it's no longer valid.
+    """
+    cached = _load_cached_session()
+    if cached:
+        try:
+            await supabase.auth.set_session(cached["access_token"], cached["refresh_token"])
+            logging.info("Restored cached printer login - no password prompt needed.")
+            session = await supabase.auth.get_session()
+            if session:
+                _save_cached_session(session)
+            return
+        except Exception as e:
+            logging.warning(f"Cached login is no longer valid, will re-prompt: {e}")
+
+    print("\n>> This printer needs to be unlocked with the admin panel password.")
+    password = _prompt_for_password()
+    if not password:
+        logging.critical("No password entered. Exiting.")
+        print("\nCRITICAL ERROR: No password entered.")
+        input("\nPress ENTER to exit...")
+        sys.exit(1)
+
+    try:
+        result = await supabase.auth.sign_in_with_password({"email": ADMIN_EMAIL, "password": password})
+    except Exception as e:
+        logging.critical(f"Login failed: {e}")
+        print(f"\nCRITICAL ERROR: Login failed - wrong password? ({e})")
+        input("\nPress ENTER to exit...")
+        sys.exit(1)
+
+    if not result.session:
+        logging.critical("Login failed - no session returned (wrong password?).")
+        print("\nCRITICAL ERROR: Login failed - wrong password?")
+        input("\nPress ENTER to exit...")
+        sys.exit(1)
+
+    _save_cached_session(result.session)
+    logging.info("Printer unlocked and session cached.")
 
 def check_internet_connection(url="https://www.google.com", timeout=3):
     """
@@ -433,6 +559,13 @@ async def main():
     try:
         # Initialize Async Supabase client
         supabase: AClient = await create_async_client(SUPABASE_URL, SUPABASE_KEY)
+
+        # Unlock: log in as the admin account (cached after the first run,
+        # see authenticate_printer) so the broadcast channel below - which
+        # only allows logged-in sessions - will actually let us listen.
+        print("Checking printer login...", end=" ", flush=True)
+        await authenticate_printer(supabase)
+        print("OK!")
 
         # Subscribe to the 'orders-printer' Realtime Broadcast channel.
         # This is intentionally NOT a postgres_changes/table subscription:

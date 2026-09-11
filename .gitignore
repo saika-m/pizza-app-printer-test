@@ -3,7 +3,9 @@
 
 # Environments
 venv/
-.env
+
+# Cached, encrypted printer login (never contains a plaintext password)
+.printer_session.dat
 
 # PyInstaller / Build artifacts
 build/
